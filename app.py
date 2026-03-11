@@ -1,14 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
+from groq import Groq
 import os
 import json
 
 app = Flask(__name__)
 CORS(app)
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-2.0-flash")
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 @app.route("/organize", methods=["POST"])
 def organize():
@@ -18,8 +17,13 @@ def organize():
     if not text:
         return jsonify({"error": "No text provided"}), 400
 
-    prompt = f"""You organize brain dumps into 4 categories. Return ONLY valid JSON with this exact structure, no other text:
-{{"tasks":[],"notes":[],"reminders":[],"ideas":[]}}
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {
+                "role": "system",
+                "content": """You organize brain dumps into 4 categories. Return ONLY valid JSON with this exact structure, no other text:
+{"tasks":[],"notes":[],"reminders":[],"ideas":[]}
 
 Rules:
 - tasks = actionable things to do
@@ -28,13 +32,16 @@ Rules:
 - ideas = creative thoughts or concepts
 - Each item max 1 sentence
 - Empty array if nothing fits that category
-- ONLY return the JSON, nothing else
+- ONLY return the JSON, nothing else"""
+            },
+            {
+                "role": "user",
+                "content": f"Organize this brain dump:\n\n{text}"
+            }
+        ]
+    )
 
-Brain dump to organize:
-{text}"""
-
-    response = model.generate_content(prompt)
-    raw = response.text.strip().replace("```json", "").replace("```", "").strip()
+    raw = response.choices[0].message.content.strip().replace("```json", "").replace("```", "").strip()
     parsed = json.loads(raw)
     return jsonify(parsed)
 
